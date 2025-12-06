@@ -49,6 +49,7 @@ def evaluate_policy(
     episode_lengths = []
     lane_departures = 0
     max_step_episodes = 0
+    collisions = 0
 
     for ep in range(num_episodes):
         state = env.reset()
@@ -81,6 +82,8 @@ def evaluate_policy(
             lane_departures += 1
         elif reason == "max_steps":
             max_step_episodes += 1
+        elif reason == "collision":
+            collisions += 1
 
     env.close()
 
@@ -94,6 +97,7 @@ def evaluate_policy(
     print(f"Average episode length: {mean_length:.1f} steps")
     print(f"Lane departures:        {lane_departures}")
     print(f"Max-steps episodes:     {max_step_episodes}")
+    print(f"collisions:     {collisions}")
     print("========================================\n")
 
 

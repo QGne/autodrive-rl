@@ -54,6 +54,13 @@ class CarlaLaneEnv:
         self.client = None
         self.world = None
         
+        self.collision_sensor = None    # new feature introduced
+        self.lane_invasion_sensor = None
+
+        # simple counters / flags updated by sensor callbacks
+        self.collision_count = 0
+        self.lane_invasion_count = 0
+        
         self.spectator = None
         self.realtime_render = True      # slow down for human eyes
         self.render_dt = 1.0 / 20.0      # ~20 FPS
@@ -104,6 +111,49 @@ class CarlaLaneEnv:
         settings.synchronous_mode = True
         settings.fixed_delta_seconds = self.fixed_delta_seconds
         self.world.apply_settings(settings)
+        
+        
+    # ------------- Sensor attachment -------------
+    
+    def _attach_sensors(self):
+        """
+        Attach a collision sensor and a lane invasion sensor to the ego vehicle.
+        """
+        if self.vehicle is None:
+            return
+
+        bp_lib = self.blueprint_library
+
+        # ---- Collision sensor ----
+        collision_bp = bp_lib.find("sensor.other.collision")
+        collision_tf = carla.Transform(carla.Location(x=0.0, y=0.0, z=2.5))
+        self.collision_sensor = self.world.spawn_actor(
+            collision_bp, collision_tf, attach_to=self.vehicle
+        )
+
+        # reset counter
+        self.collision_count = 0
+
+        def _on_collision(event):
+            # event.other_actor, event.normal_impulse, etc. are available
+            self.collision_count += 1
+
+        self.collision_sensor.listen(_on_collision)
+
+        # ---- Lane invasion sensor ----
+        lane_bp = bp_lib.find("sensor.other.lane_invasion")
+        lane_tf = carla.Transform(carla.Location(x=0.0, y=0.0, z=2.5))
+        self.lane_invasion_sensor = self.world.spawn_actor(
+            lane_bp, lane_tf, attach_to=self.vehicle
+        )
+
+        self.lane_invasion_count = 0
+
+        def _on_lane_invasion(event):
+            # event.crossed_lane_markings: list of carla.LaneMarking
+            self.lane_invasion_count += 1
+
+        self.lane_invasion_sensor.listen(_on_lane_invasion)
 
     # ------------- Core API -------------
 
@@ -112,6 +162,10 @@ class CarlaLaneEnv:
         Reset environment: spawn vehicle at a random spawn point, zero step counter.
         Returns initial state.
         """
+        #collision reset
+        self.collision_count = 0
+        self.lane_invasion_count = 0
+        
         # destroy previous vehicle if it exists
         self._cleanup_actors()
 
@@ -126,6 +180,9 @@ class CarlaLaneEnv:
             vehicle_bp = self.blueprint_library.filter("vehicle.*")[0]
 
         self.vehicle = self.world.spawn_actor(vehicle_bp, self.spawn_point)
+        
+        #attach sensors to this vehicle
+        self._attach_sensors()
 
         # let the world tick once to settle
         self.world.tick()
@@ -283,6 +340,21 @@ class CarlaLaneEnv:
         reward = 1.0 - alpha * abs(lateral_offset) - beta * abs(heading_error)
         done = False
         info: Dict[str, Any] = {}
+        
+         # --- Collision penalty ---
+        if self.collision_count > 0:
+            # Large negative penalty and terminate episode
+            reward -= 50.0
+            done = True
+            info["collision"] = True
+            info["reason"] = "collision"
+
+        # --- Lane invasion penalty (softer than full departure) ---
+        if self.lane_invasion_count > 0 and not done:
+            # Penalize but do not necessarily end episode
+            reward -= 5.0
+            info["lane_invasion"] = self.lane_invasion_count
+            # (optional) you could set done = True here if you want harsher behavior
 
         # terminate if car is too far from lane center
         if abs(lateral_offset) > max_offset:
@@ -300,6 +372,28 @@ class CarlaLaneEnv:
     # ------------- Cleanup -------------
 
     def _cleanup_actors(self):
+        if self.collision_sensor is not None:
+            try:
+                self.collision_sensor.stop()
+            except RuntimeError:
+                pass
+            try:
+                self.collision_sensor.destroy()
+            except RuntimeError:
+                pass
+            self.collision_sensor = None
+
+        if self.lane_invasion_sensor is not None:
+            try:
+                self.lane_invasion_sensor.stop()
+            except RuntimeError:
+                pass
+            try:
+                self.lane_invasion_sensor.destroy()
+            except RuntimeError:
+                pass
+            self.lane_invasion_sensor = None
+
         if self.vehicle is not None:
             try:
                 self.vehicle.destroy()
