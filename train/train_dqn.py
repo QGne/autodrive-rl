@@ -1,5 +1,6 @@
 # train/train_dqn.py
 
+from offline.dpm_prefill import prefill_replay_with_dpm
 import numpy as np
 import torch
 
@@ -8,11 +9,11 @@ from dqn.agent import DQNAgent
 
 
 def train_dqn(
-    num_episodes: int = 200,
+    num_episodes: int = 500,
     max_steps_per_episode: int = 500,
     epsilon_start: float = 1.0,
     epsilon_end: float = 0.05,
-    epsilon_decay: float = 0.995,
+    epsilon_decay: float = 0.98,
 ):
     # Create environment
     env = CarlaLaneEnv(max_steps_per_episode=max_steps_per_episode)
@@ -32,6 +33,21 @@ def train_dqn(
         target_update_freq=1000,
         device=device,
     )
+    
+
+    # ---------- PDM offline replay prefill ----------
+    use_pdm_prefill = True
+    if use_pdm_prefill:
+        route_dir = "data/NoScenario/Route0_Rep0"
+        print(f"[PDM] Pre-filling agent replay buffer from {route_dir} ...")
+        num_added = prefill_replay_with_dpm(
+            agent.replay,          # <--- or agent.memory if that's the name
+            route_dir=route_dir,
+            max_prefill=50000,
+            episode_max_steps=max_steps_per_episode,
+        )
+        print(f"[PDM] Added {num_added} offline transitions.")
+    # ------------------------------------------------
 
     epsilon = epsilon_start
     rewards_per_episode = []
@@ -72,4 +88,21 @@ if __name__ == "__main__":
     agent, rewards = train_dqn()
     # Optionally save the trained model
     torch.save(agent.q_net.state_dict(), "results/dqn_carla_lane.pth")
+    #torch.save(agent.q_net.state_dict(), "results/dqn_carla_lane_big.pth")
     print("Training finished, model saved to results/dqn_carla_lane.pth")
+    #print("Training finished, model saved to results/dqn_carla_lane_big.pth")
+    
+    import matplotlib.pyplot as plt
+    import os
+
+    os.makedirs("results", exist_ok=True)
+
+    plt.figure()
+    plt.plot(rewards)
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward")
+    plt.title("DQN Training: Episode Rewards")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("results/reward_curve.png")
+    print("Saved reward curve to results/reward_curve.png")

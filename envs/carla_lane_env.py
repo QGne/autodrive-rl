@@ -333,39 +333,79 @@ class CarlaLaneEnv:
         """
         lateral_offset, heading_error, speed, step_norm = state
 
-        alpha = 0.5
-        beta = 0.2
-        max_offset = 2.0  # meters
+        max_offset = 1.2      # meters for "hard" departure
+        max_heading = math.radians(30.0)  # 30 degrees
+        target_speed = 8.0    # m/s (tune this)
 
-        reward = 1.0 - alpha * abs(lateral_offset) - beta * abs(heading_error)
+        # --------- base reward components (per step) ---------
+        # +0.1 for being alive
+        r_alive = 0.1
+
+	# penalize normalized lateral error in [0, 1+] (clipped)
+        lat_norm = min(abs(lateral_offset) / max_offset, 1.0)
+        r_lat = -1.5 * lat_norm
+
+	# penalize normalized heading error
+        head_norm = min(abs(heading_error) / max_heading, 1.0)
+        r_head = -1.0 * head_norm
+
+	# encourage moving towards target_speed, but don't over-reward speeding
+        speed_norm = min(speed / target_speed, 1.0)
+        r_speed = 0.3 * speed_norm
+
+        reward = r_alive + r_lat + r_head + r_speed
+
         done = False
         info: Dict[str, Any] = {}
-        
-         # --- Collision penalty ---
+
+	# --------- collision penalty ---------
         if self.collision_count > 0:
-            # Large negative penalty and terminate episode
-            reward -= 50.0
+            reward -= 20.0      # still big, but not insane
             done = True
             info["collision"] = True
             info["reason"] = "collision"
 
-        # --- Lane invasion penalty (softer than full departure) ---
+	# --------- lane invasion penalty ---------
         if self.lane_invasion_count > 0 and not done:
-            # Penalize but do not necessarily end episode
-            reward -= 5.0
+            reward -= 3.0       # softer than full departure
             info["lane_invasion"] = self.lane_invasion_count
-            # (optional) you could set done = True here if you want harsher behavior
 
-        # terminate if car is too far from lane center
-        if abs(lateral_offset) > max_offset:
+	# --------- hard lane departure ---------
+        if abs(lateral_offset) > max_offset and not done:
+            reward -= 8.0
             done = True
-            reward -= 10.0
             info["reason"] = "lane_departure"
+            
+            
+        # --------- comfort zone reward ---------
+        if abs(lateral_offset) < 0.2:
+            reward += 0.05
 
-        # terminate if time horizon exceeded
-        if self.current_step >= self.max_steps:
+            
+        # --------- heading heavy penalty---------
+        if abs(heading_error) > max_heading * 1.5:
+            reward -= 8.0
+            done = True
+            info["reason"] = "bad_heading"
+
+	# --------- time horizon ---------
+        if self.current_step >= self.max_steps and not done:
             done = True
             info["reason"] = info.get("reason", "max_steps")
+
+        return float(reward), done, info
+        
+        # --------- recentering ---------
+        #r_centering = positive reward if the agent moves closer to center
+        prev_offset = getattr(self, "prev_offset", abs(lateral_offset))
+        new_offset = abs(lateral_offset)
+        if new_offset < prev_offset:
+            r_center = +0.2     # reward for correcting drift
+        else:
+            r_center = 0.0
+            
+        reward += r_center
+        self.prev_offset = new_offset 
 
         return float(reward), done, info
 

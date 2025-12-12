@@ -1,2 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
 venv_rl_dqn/
+.venv/
+
+# CARLA binaries & source
+carla/
+carla_source/
+CARLA_*.tar.gz
+
+# Datasets
+data/
+offline/
+
+# Training outputs
 results/
+*.pth
+
+# OS junk
+.DS_Store
+#Python
+__pycache__/
+*.pyc

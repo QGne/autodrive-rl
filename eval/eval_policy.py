@@ -10,6 +10,7 @@ from dqn.agent import DQNAgent
 def evaluate_policy(
     model_path: str = "results/dqn_carla_lane.pth",
     num_episodes: int = 5,
+    success_step_threshold: int = 400,
     max_steps_per_episode: int = 500,
 ):
     """
@@ -50,6 +51,7 @@ def evaluate_policy(
     lane_departures = 0
     max_step_episodes = 0
     collisions = 0
+    successes = 0
 
     for ep in range(num_episodes):
         state = env.reset()
@@ -82,19 +84,26 @@ def evaluate_policy(
             lane_departures += 1
         elif reason == "max_steps":
             max_step_episodes += 1
+            successes += 1
         elif reason == "collision":
             collisions += 1
+        if steps >= success_step_threshold and reason != "collision":
+            successes += 1
 
     env.close()
 
     # Summary metrics
     mean_reward = float(np.mean(episode_rewards)) if episode_rewards else 0.0
     mean_length = float(np.mean(episode_lengths)) if episode_lengths else 0.0
+    success_rate = successes / num_episodes if num_episodes > 0 else 0.0
+
 
     print("\n========== Evaluation Summary ==========")
     print(f"Episodes run:           {num_episodes}")
     print(f"Average reward:         {mean_reward:.2f}")
     print(f"Average episode length: {mean_length:.1f} steps")
+    print(f"Success rate:           {success_rate*100:.1f}% "
+          f"(steps >= {success_step_threshold}, no collision)")
     print(f"Lane departures:        {lane_departures}")
     print(f"Max-steps episodes:     {max_step_episodes}")
     print(f"collisions:     {collisions}")
@@ -104,7 +113,8 @@ def evaluate_policy(
 if __name__ == "__main__":
     # You can tweak these numbers as needed
     evaluate_policy(
-        model_path="results/dqn_carla_lane.pth",
+        #model_path="results/dqn_carla_lane.pth",
+        model_path="results/dqn_carla_lane_big.pth",
         num_episodes=5,
         max_steps_per_episode=500,
     )

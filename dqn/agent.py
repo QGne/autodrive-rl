@@ -11,6 +11,7 @@ import torch.optim as optim
 
 
 class QNetwork(nn.Module):
+    """
     def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128):
         super().__init__()
         self.net = nn.Sequential(
@@ -23,8 +24,23 @@ class QNetwork(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
+    """
+    def __init__(self, state_dim: int, action_dim: int):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(state_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, action_dim),
+        )
 
-
+    def forward(self, x):
+        return self.net(x)
+       
+        
 class ReplayBuffer:
     def __init__(self, capacity: int = 100_000):
         self.buffer = deque(maxlen=capacity)
